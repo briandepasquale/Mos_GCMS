@@ -1,126 +1,183 @@
-# Mosquito Attraction & GC-MS Fatty Acid Analysis
+# Predicting Mosquito Attraction from Skin Fatty Acid Profiles
 
-## Problem
+## Question
 
-This project investigates whether the chemical composition of human skin — specifically fatty acid profiles measured by Gas Chromatography-Mass Spectrometry (GC-MS) — can predict behavioral attractiveness to mosquitoes. Subjects were classified into **High** and **Low** attraction groups based on a behavioral assay, and their skin volatile fatty acid profiles were measured.
+**Can fatty acid abundances on human skin predict the degree (%) to which a subject attracts mosquitoes?**
 
-The central question: **Can fatty acid abundances on human skin predict how attractive a person is to mosquitoes?**
+Some people are consistently more attractive to mosquitoes than others. This project investigates whether the chemical composition of skin — specifically fatty acid profiles measured by Gas Chromatography-Mass Spectrometry (GC-MS) — can predict behavioral attractiveness to mosquitoes.
+
+We predict **continuous % attraction scores**, not the High/Low binary group labels. The High/Low labels were *derived from* these same scores, so predicting them would be circular. Those labels are used only for visualization.
+
+---
 
 ## Data
 
 ### Behavior Data (`Behavior_data_Ellen_Fig6B .xlsx`)
 - **19 subjects** (11 High attraction, 7 Low attraction, 1 Control)
-- Each subject completed 13-26 trials measuring mosquito attraction (% score per trial)
+- Each subject completed **13–26 trials** measuring mosquito attraction (% score per trial)
 - Scores range from 0% (no attraction) to 100% (maximum attraction)
+- Mean attraction across subjects ranges from **19.9% to 85.8%**
 
 ### GC-MS Data (`GCMS_ellen_data_Fig6F.xlsx`)
-- **380 rows** (19 subjects x 20 replicate measurements each)
-- **11 fatty acids** measured (C10-C20 carbon chain lengths):
+- **380 rows** (19 subjects × 20 replicate measurements each)
+- **11 fatty acids** measured (C10–C20 carbon chain lengths):
 
-| Fatty Acid | Carbon Chain | Common Name |
-|---|---|---|
-| decanoic | C10 | capric acid |
-| undecanoic | C11 | - |
-| dodecanoic | C12 | lauric acid |
-| tridecanoic | C13 | - |
-| tetradecanoic | C14 | myristic acid |
-| pentadecanoic | C15 | - |
-| hexadecanoic | C16 | palmitic acid |
-| heptadecanoic | C17 | margaric acid |
-| octadecanoic | C18 | stearic acid |
-| nonadecanoic | C19 | - |
-| icosanoic | C20 | arachidic acid |
+| Fatty Acid | Chain | Common Name | Notes |
+|---|---|---|---|
+| decanoic | C10 | Capric acid | |
+| undecanoic | C11 | — | Odd-chain |
+| dodecanoic | C12 | Lauric acid | |
+| tridecanoic | C13 | — | Odd-chain |
+| tetradecanoic | C14 | Myristic acid | |
+| pentadecanoic | C15 | — | Odd-chain |
+| hexadecanoic | C16 | Palmitic acid | Most abundant |
+| heptadecanoic | C17 | Margaric acid | Odd-chain |
+| octadecanoic | C18 | Stearic acid | 2nd most abundant |
+| nonadecanoic | C19 | — | Odd-chain |
+| icosanoic | C20 | Arachidic acid | |
 
-## Analysis
+---
 
-The analysis is contained in [`explore_data.ipynb`](explore_data.ipynb). Below is a summary of the approach and results.
+## Analysis Overview
 
-### Data Preparation
+All analysis is in [`explore_data.ipynb`](explore_data.ipynb). Two modeling approaches are used:
 
-1. Behavior scores were averaged across all trials per subject to produce a single **mean behavior score** (%)
-2. GC-MS measurements were averaged across 20 replicates per subject for each fatty acid
-3. Datasets were merged on subject ID, yielding **18 matched subjects** (Control subject excluded from merge)
+| Approach | Data | N | Model | Purpose |
+|---|---|---|---|---|
+| **Subject-level** (Section 4) | Averaged GCMS + averaged behavior | 18 | Beta regression on PCA components | Primary predictive model with LOOCV |
+| **Replicate-level** (Section 5) | All 20 GCMS replicates per subject | 360 | Linear mixed-effects model | Properly handles repeated measures |
 
-### Correlation Analysis
+### Why average?
 
-All 11 fatty acids show **positive correlations** with mean behavior score, ranging from r=0.304 (tetradecanoic) to r=0.564 (dodecanoic). This suggests that higher fatty acid abundances are broadly associated with higher mosquito attraction.
+**Behavior trials** are averaged because each trial is a noisy estimate of the same underlying attractiveness, and the number of trials varies (13–26). **GCMS replicates** are averaged for the subject-level analysis to pair one fatty acid profile with one behavior score. The mixed-effects model (Section 5) keeps all 20 replicates and uses random intercepts per subject to account for within-subject correlation.
+
+### Why beta regression?
+
+The outcome is a **proportion** (0–1). OLS can predict outside [0, 1] and assumes constant variance. Beta regression models the response as Beta-distributed on (0, 1), naturally handling both issues.
+
+### Why PCA?
+
+With **11 correlated fatty acid predictors** and only **18 subjects**, directly fitting regression would be severely overparameterized. PCA reduces the 11 acids to 3 orthogonal components capturing 91.6% of variance, eliminating multicollinearity and making estimation feasible.
+
+---
+
+## Results
+
+### Correlations: Every Fatty Acid Positively Correlates with Attraction
+
+All 11 fatty acids show **positive correlations** with mean % attraction, ranging from r=0.304 (tetradecanoic) to r=0.564 (dodecanoic). Higher fatty acid abundances are broadly associated with greater mosquito attraction.
 
 ![Correlation Heatmap](fig_correlation_heatmap.png)
 
-### Dimensionality Reduction (PCA)
+### Top 3 Individual Fatty Acid Predictors
 
-With 11 predictors and only 18 subjects, PCA was applied to reduce dimensionality and avoid overfitting:
-- **3 principal components** retained, explaining **91.6%** of total variance
-  - PC1 (62.9%): Overall fatty acid abundance (all positive loadings)
-  - PC2 (18.5%): Short-chain vs long-chain fatty acids contrast
-  - PC3 (10.2%): Specific fatty acid contrasts (dodecanoic/octadecanoic vs tridecanoic/pentadecanoic)
+The strongest individual predictors are dodecanoic (C12), hexadecanoic (C16), and decanoic (C10):
+
+![Top 3 Scatter](fig_top3_scatter.png)
+
+### Group Profiles: High-Attraction Subjects Are Elevated Across All Acids
+
+Comparing standardized (z-scored) fatty acid profiles between High and Low attraction groups shows a consistent pattern: **High attraction subjects have above-average levels of every fatty acid**, while Low attraction subjects are below average across the board.
+
+![Group Profiles](fig_group_profiles.png)
+
+### PCA: 3 Components Capture 91.6% of Fatty Acid Variance
+
+| Component | Variance | Interpretation |
+|---|---|---|
+| **PC1** | 62.9% | Overall fatty acid abundance (all loadings positive) |
+| **PC2** | 18.5% | Short-chain vs long-chain contrast |
+| **PC3** | 10.2% | Specific acid contrasts (dodecanoic/octadecanoic vs tridecanoic/pentadecanoic) |
 
 ![PCA Scree Plot](fig_pca_scree.png)
 
 ![PCA Loadings](fig_pca_loadings.png)
 
-### Regression Model
+### Beta Regression: PC1 Significantly Predicts Attraction
 
-**Beta regression** was attempted (appropriate for bounded proportion data on (0,1)), but did not converge with the small sample size. **OLS regression** on PCA components was used as the fallback.
+The full beta regression model on all 18 subjects:
 
-#### Full Model (all 18 subjects)
+| Predictor | Coefficient | Std Error | z | p-value |
+|---|---|---|---|---|
+| **PC1 (overall abundance)** | **0.202** | **0.072** | **2.80** | **0.005** |
+| PC2 (chain length contrast) | 0.047 | 0.118 | 0.40 | 0.688 |
+| PC3 (specific contrasts) | 0.123 | 0.153 | 0.80 | 0.423 |
+| Precision (phi) | 2.045 | 0.317 | 6.44 | 0.000 |
 
-| Metric | Value |
-|---|---|
-| R-squared | 0.361 |
-| Adj. R-squared | 0.224 |
-| F-statistic | 2.639 (p=0.090) |
+**PC1 is the only significant predictor (p=0.005)**: subjects with higher overall fatty acid levels are more attractive to mosquitoes. The specific composition (which acids are relatively high vs low) does not significantly matter — it's the total amount.
 
-**PC1** (overall fatty acid abundance) was the only significant predictor (coef=0.048, p=0.018), confirming that subjects with higher overall fatty acid levels tend to have higher mosquito attraction scores.
+### Leave-One-Out Cross-Validation
 
-#### Leave-One-Out Cross-Validation (LOOCV)
+LOOCV provides an honest estimate of out-of-sample prediction. PCA is refit inside each fold to prevent data leakage. Beta regression converged in all 18/18 folds.
 
-| Metric | Value |
-|---|---|
-| MAE | 18.94% |
-| RMSE | 21.52% |
-| R-squared (CV) | 0.027 |
-| Pearson r | 0.341 |
+| Metric | Value | Meaning |
+|---|---|---|
+| MAE | **17.77%** | Average prediction error |
+| RMSE | 20.63% | Penalizes large errors more |
+| R-squared (CV) | **0.106** | Variance explained out-of-sample |
+| Pearson r | **0.377** | Prediction-outcome correlation |
 
-The low cross-validated R-squared versus the in-sample R-squared (0.361) indicates the model is somewhat overfit given the small sample size. However, the positive Pearson r (0.341) confirms a real, if modest, predictive signal.
+**Interpretation**: A moderate predictive signal. Predictions correlate with actual scores (r=0.38), explaining ~11% of out-of-sample variance. The gap between in-sample and cross-validated performance reflects the small sample size.
 
 ![Predicted vs Actual](fig_predicted_vs_actual.png)
 
-### Residual Analysis
+### Residual Diagnostics
 
-Residuals are approximately normally distributed with no obvious systematic patterns, supporting the validity of the linear model assumptions.
+Residuals are approximately normally distributed with no systematic patterns, supporting the validity of the model.
 
 ![Residuals](fig_residuals.png)
 
-### Group-Level Fatty Acid Profiles
+### Mixed-Effects Model: Confirms the Pattern
 
-Comparing standardized fatty acid profiles between High and Low attraction groups reveals that **High attraction subjects tend to have higher abundances across nearly all fatty acids**, while Low attraction subjects are below average. The pattern is consistent across all 11 fatty acids.
+The replicate-level mixed-effects model (`% attraction ~ PC1 + PC2 + PC3 + (1|subject)`) uses all 360 observations. The random intercepts cleanly separate High from Low attraction subjects:
 
-![Group Profiles](fig_group_profiles.png)
+| Subject | Group | Mean % Attraction | Random Intercept |
+|---|---|---|---|
+| Sub_48 | High | 85.8% | +0.276 |
+| Sub_76 | High | 82.7% | +0.245 |
+| Sub_33 | High | 81.6% | +0.233 |
+| ... | ... | ... | ... |
+| Sub_71 | Low | 29.2% | -0.290 |
+| Sub_85 | Low | 27.5% | -0.308 |
+| Sub_28 | Low | 19.9% | -0.383 |
+
+---
 
 ## Key Findings
 
-1. **All 11 fatty acids positively correlate with mosquito attraction**, with dodecanoic (C12), hexadecanoic (C16), and decanoic (C10) showing the strongest correlations (r > 0.5)
-2. **PC1 (overall fatty acid level) is a significant predictor** of behavior (p=0.018), explaining ~36% of variance in-sample
-3. **Cross-validated prediction is modest** (R2=0.03, r=0.34), reflecting the challenge of small sample size (n=18)
-4. **High-attraction subjects have systematically elevated fatty acid profiles** compared to low-attraction subjects across all measured acids
+1. **All 11 fatty acids positively correlate with mosquito attraction** — higher levels = more attractive
+2. **Overall fatty acid abundance (PC1) is the dominant predictor** (p=0.005) — the total amount matters more than the specific composition
+3. **Cross-validated prediction is moderate** (r=0.38, R2=0.11) — a real but modest signal, limited by small sample size (n=18)
+4. **High-attraction subjects are uniformly elevated** across all 11 fatty acids compared to low-attraction subjects
+5. **The strongest individual predictors** are dodecanoic (C12, r=0.56), hexadecanoic (C16, r=0.55), and decanoic (C10, r=0.53)
 
-## Requirements
+---
+
+## Repository Structure
 
 ```
-pandas
-openpyxl
-numpy
-statsmodels
-scikit-learn
-matplotlib
-seaborn
-scipy
+Mos_GCMS/
+├── README.md                           # This file
+├── explore_data.ipynb                  # Full analysis notebook
+├── Behavior_data_Ellen_Fig6B .xlsx     # Behavioral assay data (Fig 6B)
+├── GCMS_ellen_data_Fig6F.xlsx          # GC-MS fatty acid data (Fig 6F)
+├── fig_correlation_heatmap.png         # Fatty acid vs behavior correlations
+├── fig_top3_scatter.png                # Top 3 fatty acids scatter plots
+├── fig_group_profiles.png              # High vs Low group fatty acid profiles
+├── fig_pca_scree.png                   # PCA variance explained
+├── fig_pca_loadings.png                # PCA component loadings
+├── fig_predicted_vs_actual.png         # LOOCV predictions
+├── fig_residuals.png                   # Residual diagnostics
+├── .gitignore                          # Excludes .venv, __pycache__, etc.
+└── .venv/                              # Python virtual environment (not tracked)
 ```
 
-## Usage
+## Setup
 
 ```bash
+# Load Python (on BU SCC)
+module load python3/3.10.12
+
 # Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
