@@ -143,6 +143,99 @@ The replicate-level mixed-effects model (`% attraction ~ PC1 + PC2 + PC3 + (1|su
 
 ---
 
+## Chemical Space Screening: Identifying Novel Attractant Candidates
+
+Full analysis in [`qsar_screening.ipynb`](qsar_screening.ipynb).
+
+### Motivation
+
+Our GC-MS panel only measured 11 saturated straight-chain fatty acids (C10–C20). But human skin produces hundreds of volatile compounds — unsaturated acids, branched chains, aldehydes, alcohols, ketones — that weren't in the panel but might also attract mosquitoes. Can we use what we learned from the panel to identify which of these other compounds are worth testing?
+
+### Approach: Molecular Descriptor Similarity Search
+
+We use **Mordred molecular descriptors** to characterize the chemical properties of each compound. Mordred computes ~1600 descriptors from a molecule's SMILES structure, capturing:
+- **Topological features**: connectivity, branching, ring structures
+- **Physicochemical properties**: molecular weight, LogP (lipophilicity), polar surface area
+- **Constitutional descriptors**: atom counts, bond counts, functional group counts
+- **Autocorrelation descriptors**: how properties distribute along the molecular graph
+
+Descriptors are computed for all compounds together (panel + candidates), standardized, then reduced to 5 principal components via PCA (capturing 90.4% of variance). This shared chemical space lets us measure how similar each candidate is to the panel compounds.
+
+### What this is NOT
+
+With only 11 training compounds that are structurally very similar (straight-chain saturated acids), we **cannot** train a precise predictive model of attraction from chemical properties alone. The attraction scores don't vary monotonically with chain length or any single descriptor. Instead, this is a **chemical similarity search**: we identify candidates that share chemical features with our top attractors, prioritizing those that are structurally novel but chemically plausible.
+
+### Candidate Library
+
+The 22 candidate compounds are **hand-curated** from the literature, not drawn from a systematic database screen. They represent structurally diverse classes of skin-associated volatiles:
+
+| Class | Compounds | Rationale |
+|---|---|---|
+| Unsaturated FA | oleic, palmitoleic, linoleic, myristoleic, sapienic | Major sebum components; same chain lengths as panel but with double bonds |
+| Branched FA | iso-pentadecanoic, anteiso-pentadecanoic, iso-heptadecanoic | Found in skin lipids; branching alters volatility and receptor binding |
+| Hydroxylated FA | 10-hydroxydecanoic, 12-hydroxydodecanoic, ricinoleic | Oxidation products of skin lipids |
+| Dicarboxylic | sebacic acid, dodecanedioic acid | Bacterial metabolism products of skin lipids |
+| Short-chain FA | octanoic, hexanoic, lactic acid | Lactic acid is a classic mosquito attractant (positive control) |
+| Aldehydes | nonanal, decanal | Known mosquito attractants identified in human emanations |
+| Ketones | geranylacetone, 6-MHO | Skin volatiles from squalene oxidation |
+| Other | 1-octen-3-ol, squalene | Skin-associated alcohol and terpenoid |
+
+In a full implementation, this library could be expanded to thousands of compounds by screening the Human Metabolome Database (HMDB), the Skin Volatiles Database, or targeted subsets of PubChem filtered for skin-relevant physicochemical properties.
+
+### Scoring Method
+
+For each candidate, we compute its Euclidean distance in Mordred PCA space to each panel compound. The predicted attraction score is a **Gaussian kernel-weighted average** of the panel compounds' known attraction correlations:
+
+- Candidates close to **high-attraction** panel compounds (dodecanoic, hexadecanoic, decanoic) score highest
+- **Confidence** is based on distance to the nearest panel compound — closer = higher confidence because the candidate is in well-characterized chemical territory
+
+### Chemical Space Map
+
+Panel compounds (squares, colored by attraction strength) form a tight cluster — they're all straight-chain saturated acids varying only in chain length. Candidates spread across a much wider chemical space, with unsaturated and hydroxylated acids closest to the panel and aldehydes/ketones/terpenoids furthest away:
+
+![Chemical Space](fig_chemical_space.png)
+
+### Candidate Ranking
+
+| Rank | Candidate | Class | Predicted Attraction | Nearest Panel | Confidence |
+|---|---|---|---|---|---|
+| 1 | octanoic acid | short-chain FA | 0.470 | decanoic | HIGH |
+| 2 | 10-hydroxydecanoic | hydroxy FA | 0.461 | decanoic | HIGH |
+| 3 | decanal | aldehyde | 0.461 | decanoic | HIGH |
+| 4 | iso-heptadecanoic | branched FA | 0.457 | octadecanoic | HIGH |
+| 5 | 12-hydroxydodecanoic | hydroxy FA | 0.457 | dodecanoic | HIGH |
+| 6 | myristoleic acid | unsaturated FA | 0.457 | tridecanoic | HIGH |
+| 7 | oleic acid | unsaturated FA | 0.457 | heptadecanoic | HIGH |
+| 8 | palmitoleic acid | unsaturated FA | 0.457 | pentadecanoic | HIGH |
+| 9 | sapienic acid | unsaturated FA | 0.457 | pentadecanoic | HIGH |
+
+![Candidate Ranking](fig_candidate_ranking.png)
+
+### Attraction vs Chemical Similarity
+
+The ideal candidates are in the **upper-left**: high predicted attraction AND close to the panel (high confidence). Compounds in the upper-right (lactic acid, hexanoic acid, 6-MHO) have high predicted scores but are chemically distant from the panel — predictions for these are less certain.
+
+![Attraction vs Distance](fig_attraction_vs_distance.png)
+
+### Physicochemical Profile of Top Attractors
+
+The top 3 panel attractors share these properties:
+
+| Property | Range | Interpretation |
+|---|---|---|
+| **MW** | 172–256 | Medium-weight molecules |
+| **LogP** | 3.2–5.6 | Moderately lipophilic (fat-soluble) |
+| **TPSA** | 37.3 | Low polar surface area (nonpolar character) |
+| **Rotatable bonds** | 8–14 | Flexible chains |
+| **FracCSP3** | 0.90–0.94 | Mostly sp3 carbons (saturated) |
+
+High-confidence candidates matching these ranges include:
+- **Unsaturated fatty acids** (oleic, palmitoleic, sapienic) — same backbone, added double bond
+- **Hydroxylated acids** (10-hydroxydecanoic, 12-hydroxydodecanoic) — same backbone, added OH group
+- **Branched-chain acids** (iso-heptadecanoic) — same functional group, altered chain topology
+
+---
+
 ## Key Findings
 
 1. **All 11 fatty acids positively correlate with mosquito attraction** — higher levels = more attractive
@@ -150,6 +243,8 @@ The replicate-level mixed-effects model (`% attraction ~ PC1 + PC2 + PC3 + (1|su
 3. **Cross-validated prediction is moderate** (r=0.38, R2=0.11) — a real but modest signal, limited by small sample size (n=18)
 4. **High-attraction subjects are uniformly elevated** across all 11 fatty acids compared to low-attraction subjects
 5. **The strongest individual predictors** are dodecanoic (C12, r=0.56), hexadecanoic (C16, r=0.55), and decanoic (C10, r=0.53)
+6. **Unsaturated and hydroxylated fatty acids** are the top candidates for novel attractants — they share chemical properties with the high-attraction panel compounds while adding structural diversity (double bonds, hydroxyl groups)
+7. **Aldehydes** (nonanal, decanal) represent an interesting expansion into different functional group territory, though predictions for these are less confident
 
 ---
 
@@ -158,7 +253,8 @@ The replicate-level mixed-effects model (`% attraction ~ PC1 + PC2 + PC3 + (1|su
 ```
 Mos_GCMS/
 ├── README.md                           # This file
-├── explore_data.ipynb                  # Full analysis notebook
+├── explore_data.ipynb                  # Beta regression & mixed-effects analysis
+├── qsar_screening.ipynb                # Chemical space screening for novel candidates
 ├── Behavior_data_Ellen_Fig6B .xlsx     # Behavioral assay data (Fig 6B)
 ├── GCMS_ellen_data_Fig6F.xlsx          # GC-MS fatty acid data (Fig 6F)
 ├── fig_correlation_heatmap.png         # Fatty acid vs behavior correlations
@@ -168,6 +264,9 @@ Mos_GCMS/
 ├── fig_pca_loadings.png                # PCA component loadings
 ├── fig_predicted_vs_actual.png         # LOOCV predictions
 ├── fig_residuals.png                   # Residual diagnostics
+├── fig_chemical_space.png              # Panel vs candidate chemical space
+├── fig_candidate_ranking.png           # Candidate attraction ranking
+├── fig_attraction_vs_distance.png      # Attraction vs chemical similarity
 ├── .gitignore                          # Excludes .venv, __pycache__, etc.
 └── .venv/                              # Python virtual environment (not tracked)
 ```
@@ -181,8 +280,9 @@ module load python3/3.10.12
 # Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pandas openpyxl numpy statsmodels scikit-learn matplotlib seaborn scipy jupyter
+pip install pandas openpyxl numpy statsmodels scikit-learn matplotlib seaborn scipy jupyter mordred rdkit-pypi
 
-# Run the notebook
+# Run the notebooks
 jupyter notebook explore_data.ipynb
+jupyter notebook qsar_screening.ipynb
 ```
