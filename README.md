@@ -184,10 +184,34 @@ In a full implementation, this library could be expanded to thousands of compoun
 
 ### Scoring Method
 
-For each candidate, we compute its Euclidean distance in Mordred PCA space to each panel compound. The predicted attraction score is a **Gaussian kernel-weighted average** of the panel compounds' known attraction correlations:
+For each candidate, we compute its Euclidean distance in Mordred PCA space to each of the 11 panel compounds. The predicted attraction score is a **Gaussian kernel-weighted average** of the panel compounds' known attraction correlations:
 
-- Candidates close to **high-attraction** panel compounds (dodecanoic, hexadecanoic, decanoic) score highest
-- **Confidence** is based on distance to the nearest panel compound — closer = higher confidence because the candidate is in well-characterized chemical territory
+**score(candidate) = Σ w_i × r_i / Σ w_i**, where **w_i = exp(-d²/2σ²)**
+
+- **d** = distance between candidate and panel compound *i* in PCA space
+- **r_i** = panel compound *i*'s known attraction correlation
+- **σ** = bandwidth (set to the 25th percentile of all pairwise distances)
+
+The Gaussian weights decay with distance: a candidate close to dodecanoic (r=0.564) will be pulled toward that high score, while a candidate equidistant from everything converges to the panel mean (~0.460).
+
+**Confidence** is based on distance to the nearest panel compound — closer = higher confidence because the candidate is in well-characterized chemical territory (median distance threshold = 18.5).
+
+### Interpreting the Scores: Why Lactic Acid Ranks High
+
+Lactic acid appears near the top of the ranking (score=0.490) despite being the **most distant** compound from the panel (distance=80.8). This is not because the model predicts it to be attractive — it's an artifact of how the scoring behaves at extreme distances.
+
+When a compound is very far from **all** panel compounds, the Gaussian weights become tiny and nearly equal. The normalized weights approach ~1/11 for each panel compound, and the score converges toward the **unweighted mean** of all panel attraction values (~0.460). Lactic acid scores slightly above this mean (0.490) because it is marginally closer to the short-chain panel acids (decanoic, r=0.527) than the long-chain ones, but this difference is noise — the model has essentially no information about compounds this far from the training data.
+
+**The key rule for reading the results**:
+
+| Score | Confidence | Interpretation |
+|---|---|---|
+| High | **HIGH** | Actionable — chemically similar to known attractors, likely worth testing |
+| High | low | Uninformative — too far from training data, score defaults to panel mean |
+| Low | **HIGH** | Informative negative — chemically similar to low-attraction panel acids |
+| Low | low | Uninformative — outside the model's knowledge |
+
+The actionable candidates are those with **high scores AND high confidence** — compounds like oleic acid, 12-hydroxydodecanoic, and sapienic acid that are chemically close to the panel and weighted toward the high-attraction end.
 
 ### Chemical Space Map
 
